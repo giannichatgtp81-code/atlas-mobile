@@ -78,8 +78,8 @@ def analyse_palinsesto(rows):
 def candidates(rows):
     return analyse_palinsesto(rows)['listone']
 
-def best_ticket(events, target, max_events):
-    valid = [e for e in events if number(e.get('quota')) and e['quota'] > 1.20 and e['quota'] <= target*1.05/1.20]
+def best_ticket(events, target, max_events, max_leg_odds=None, min_events=2):
+    valid = [e for e in events if number(e.get('quota')) and e['quota'] > 1.20 and e['quota'] <= target*1.05/1.20 and (max_leg_odds is None or e['quota'] <= max_leg_odds)]
     groups = {}
     for e in valid: groups.setdefault(e['event_id'],[]).append(e)
     # Ricerca compatta per quota a centesimi: mantiene i due percorsi migliori
@@ -103,7 +103,7 @@ def best_ticket(events, target, max_events):
                 bucket.sort(key=lambda t:(-t['prob'],abs(t['quota']-target)))
                 del bucket[2:]
     best = None
-    for size in range(2,max_events+1):
+    for size in range(min_events,max_events+1):
         for bucket in states[size].values():
             for ticket in bucket:
                 if not target*.95 <= ticket['quota'] <= upper: continue

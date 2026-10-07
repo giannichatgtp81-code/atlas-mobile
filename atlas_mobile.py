@@ -65,7 +65,7 @@ if analysis is not None:
         single = max(selected,key=lambda e:e['prob']) if selected else None
         show('Singola del giorno',{'legs':[single],'quota':single['quota'],'prob':single['prob']} if single else None)
         show('Quota 2 · 2–3 eventi · fascia 1,90–2,10',best_ticket(selected,2,3))
-        show('Quota 3 · 2–4 eventi · fascia 2,85–3,15',best_ticket(selected,3,4))
+        show('Quota 3 · 3–4 eventi · massimo 1,55 per evento',best_ticket(selected,3,4,max_leg_odds=1.55,min_events=3))
         with st.expander(f'Le migliori combo ({len(events)}/30)'):
             frame = pd.DataFrame([{'Partita':e['partita'],'Combo':e['mercato'],'Quota':round(e['quota'],2),'Fonte quota':'Stimata' if e.get('quota_stimata') else 'File','Probabilità stimata %':round(e['prob']*100,1)} for e in events])
             st.dataframe(frame,hide_index=True,use_container_width=True)
