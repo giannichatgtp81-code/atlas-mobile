@@ -6,6 +6,7 @@ import streamlit as st
 from pdf_odds_importer import OddsPrinterPdfParser
 from mobile_combo_engine import analyse_palinsesto, best_ticket
 from money_management_single import render as render_money_management
+from analysis_storage import load as load_analysis, save as save_analysis, payload, active
 
 st.set_page_config(page_title='Atlas Mobile',page_icon='⚽',layout='centered')
 st.markdown('''<style>
@@ -42,6 +43,15 @@ def show(title,ticket):
 
 st.title('Atlas Mobile')
 st.caption('Singola del giorno · quota 2 · quota 3 · listone 30 combo')
+@st.cache_data(ttl=60)
+def public_analysis():
+    return load_analysis()
+
+if 'palinsesto_analysis' not in st.session_state:
+    saved_analysis=public_analysis()
+    if saved_analysis and active(saved_analysis):
+        st.session_state['palinsesto_analysis']=saved_analysis['analysis']
+        st.session_state['analysis_saved']=saved_analysis
 with st.form('analysis'):
     upload = st.file_uploader('Carica il palinsesto PDF Oddsprinter o CSV',type=['pdf','csv'])
     submitted = st.form_submit_button('Genera pronostici',use_container_width=True)
@@ -52,19 +62,38 @@ if submitted:
         try:
             with st.spinner('Analisi del palinsesto…'):
                 st.session_state['palinsesto_analysis'] = analyse_palinsesto(read_rows(upload))
+                daily_payload=payload(st.session_state['palinsesto_analysis'])
+                st.session_state['analysis_saved']=daily_payload
+                try: token=st.secrets.get('ATLAS_STORAGE_TOKEN','')
+                except Exception:token=''
+                if token:
+                    try:
+                        save_analysis(daily_payload,token)
+                        public_analysis.clear()
+                        st.success('Analisi salvata online per la giornata di riferimento.')
+                    except Exception:
+                        st.warning('Analisi completata, ma il salvataggio online non è riuscito. Il risultato è disponibile in questa sessione.')
+                else:
+                    st.warning('Archivio giornaliero da attivare: questa nuova analisi resta per ora nella sessione corrente.')
                 st.session_state['combo_version'] = st.session_state.get('combo_version',0)+1
         except Exception as error: st.error(f'Impossibile analizzare il file: {error}')
 
+stored=st.session_state.get('analysis_saved')
+if stored and not active(stored):
+    st.session_state.pop('palinsesto_analysis',None)
+    st.session_state.pop('analysis_saved',None)
 analysis = st.session_state.get('palinsesto_analysis')
 if analysis is not None:
+    if stored:st.caption(f"Palinsesto del {stored['reference_date']} · valido fino alla mezzanotte della giornata indicata")
     events = analysis['listone']
     if not events and not analysis['daily']:
         st.info('Nessun evento utilizzabile: servono quote 1X2 e almeno un mercato completo Under/Over o Goal/No Goal.')
     else:
         selected = analysis['daily']
         st.caption(f"{analysis['analysed']} partite analizzate · proposte automatiche da tutto il palinsesto")
-        single = max(selected,key=lambda e:e['prob']) if selected else None
-        show('Singola del giorno',{'legs':[single],'quota':single['quota'],'prob':single['prob']} if single else None)
+        single_options = [e for e in selected if e['quota'] >= 1.40]
+        single = max(single_options,key=lambda e:e['prob']) if single_options else None
+        show('Singola del giorno · quota minima 1,40',{'legs':[single],'quota':single['quota'],'prob':single['prob']} if single else None)
         show('Quota 2 · 2–3 eventi · fascia 1,90–2,10',best_ticket(selected,2,3))
         show('Quota 3 · 3–4 eventi · massimo 1,55 per evento',best_ticket(selected,3,4,max_leg_odds=1.55,min_events=3))
         with st.expander(f'Le migliori combo ({len(events)}/30)'):
