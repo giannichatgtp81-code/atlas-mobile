@@ -5,6 +5,7 @@ import pandas as pd
 import streamlit as st
 from pdf_odds_importer import OddsPrinterPdfParser
 from mobile_combo_engine import analyse_palinsesto, best_ticket
+from money_management import render as render_money_management
 
 st.set_page_config(page_title='Atlas Mobile',page_icon='⚽',layout='centered')
 st.markdown('''<style>
@@ -72,3 +73,5 @@ if analysis is not None:
         if any(e.get('quota_stimata') for e in events):
             st.caption('Nel listone le quote combo mancanti sono teoriche (1/probabilità), non prezzi del bookmaker. Le tre proposte giornaliere usano soltanto quote presenti nel file.')
         st.caption('Probabilità stimate dalle quote con modello Poisson, non percentuali di successo verificate. Per le multiple il calcolo assume eventi indipendenti.')
+
+render_money_management()
