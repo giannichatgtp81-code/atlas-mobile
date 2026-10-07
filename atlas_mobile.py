@@ -5,7 +5,7 @@ import pandas as pd
 import streamlit as st
 from pdf_odds_importer import OddsPrinterPdfParser
 from mobile_combo_engine import analyse_palinsesto, best_ticket
-from money_management import render as render_money_management
+from money_management_single import render as render_money_management
 
 st.set_page_config(page_title='Atlas Mobile',page_icon='⚽',layout='centered')
 st.markdown('''<style>
