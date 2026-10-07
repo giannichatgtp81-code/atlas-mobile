@@ -4,9 +4,16 @@ import tempfile
 import pandas as pd
 import streamlit as st
 from pdf_odds_importer import OddsPrinterPdfParser
-from mobile_combo_engine import candidates, best_ticket, number
+from mobile_combo_engine import analyse_palinsesto, best_ticket
 
 st.set_page_config(page_title='Atlas Mobile',page_icon='⚽',layout='centered')
+st.markdown('''<style>
+.stApp {background:#F2F8FD;color:#42576A;}
+h1,h2,h3 {color:#173B59!important;}
+div.stButton>button,div.stFormSubmitButton>button {background:#369DDB;color:white;border:0;border-radius:12px;}
+div[data-testid="stForm"] {background:white;border:1px solid #CDE5F5;border-radius:16px;}
+div[data-testid="stVerticalBlockBorderWrapper"]>div {border-color:#CDE5F5!important;}
+</style>''',unsafe_allow_html=True)
 
 def read_rows(upload):
     if upload.name.lower().endswith('.csv'):
@@ -23,46 +30,45 @@ def read_rows(upload):
 def show(title,ticket):
     st.subheader(title)
     if ticket is None:
-        st.info('Nessuna proposta valida con gli eventi e le quote selezionati.')
+        st.info('Nessuna proposta valida con le quote del palinsesto.')
         return
-    for leg in ticket['legs']:
-        st.write(f"**{leg['partita']}** — {leg['mercato']} · quota {leg['quota']:.2f}")
-    st.write(f"**Quota totale {ticket['quota']:.2f}** · probabilità stimata {ticket['prob']*100:.1f}%")
+    with st.container(border=True):
+        for leg in ticket['legs']:
+            label = 'quota stimata' if leg.get('quota_stimata') else 'quota reale'
+            st.write(f"**{leg['partita']}** — {leg['mercato']} · {label} {leg['quota']:.2f}")
+        label = 'Quota totale stimata' if any(e.get('quota_stimata') for e in ticket['legs']) else 'Quota totale'
+        st.write(f"**{label} {ticket['quota']:.2f}** · probabilità stimata {ticket['prob']*100:.1f}%")
 
 st.title('Atlas Mobile')
-st.caption('Combo sopra quota 1,20 · massimo 30 eventi · tre proposte')
+st.caption('Singola del giorno · quota 2 · quota 3 · listone 30 combo')
 with st.form('analysis'):
     upload = st.file_uploader('Carica il palinsesto PDF Oddsprinter o CSV',type=['pdf','csv'])
     submitted = st.form_submit_button('Genera pronostici',use_container_width=True)
 if submitted:
-    st.session_state.pop('combo_events',None)
+    st.session_state.pop('palinsesto_analysis',None)
     if upload is None: st.error('Seleziona prima un file.')
     else:
         try:
             with st.spinner('Analisi del palinsesto…'):
-                st.session_state['combo_events'] = candidates(read_rows(upload))
+                st.session_state['palinsesto_analysis'] = analyse_palinsesto(read_rows(upload))
                 st.session_state['combo_version'] = st.session_state.get('combo_version',0)+1
         except Exception as error: st.error(f'Impossibile analizzare il file: {error}')
 
-events = st.session_state.get('combo_events')
-if events is not None:
-    if not events:
+analysis = st.session_state.get('palinsesto_analysis')
+if analysis is not None:
+    events = analysis['listone']
+    if not events and not analysis['daily']:
         st.info('Nessun evento utilizzabile: servono quote 1X2 e almeno un mercato completo Under/Over o Goal/No Goal.')
     else:
-        st.subheader(f'Eventi selezionabili ({len(events)}/30)')
-        st.caption('Se la quota combo manca nel file, inserisci quella reale del bookmaker. Quote ≤ 1,20 escluse.')
-        frame = pd.DataFrame([{'Seleziona':bool(e['quota']),'Partita':e['partita'],'Combo':e['mercato'],'Quota reale':e['quota'],'Probabilità stimata %':round(e['prob']*100,1)} for e in events])
-        edited = st.data_editor(frame,hide_index=True,use_container_width=True,
-            disabled=['Partita','Combo','Probabilità stimata %'],
-            column_config={'Quota reale':st.column_config.NumberColumn(min_value=1.0,step=0.01,format='%.2f')},
-            key=f"selection_{st.session_state['combo_version']}")
-        selected = []
-        for event,(_,record) in zip(events,edited.iterrows()):
-            odd = number(record['Quota reale'])
-            if record['Seleziona'] and odd and odd>1.20:
-                selected.append({**event,'quota':odd})
+        selected = analysis['daily']
+        st.caption(f"{analysis['analysed']} partite analizzate · proposte automatiche da tutto il palinsesto")
         single = max(selected,key=lambda e:e['prob']) if selected else None
         show('Singola del giorno',{'legs':[single],'quota':single['quota'],'prob':single['prob']} if single else None)
         show('Quota 2 · 2–3 eventi · fascia 1,90–2,10',best_ticket(selected,2,3))
         show('Quota 3 · 2–4 eventi · fascia 2,85–3,15',best_ticket(selected,3,4))
+        with st.expander(f'Le migliori combo ({len(events)}/30)'):
+            frame = pd.DataFrame([{'Partita':e['partita'],'Combo':e['mercato'],'Quota':round(e['quota'],2),'Fonte quota':'Stimata' if e.get('quota_stimata') else 'File','Probabilità stimata %':round(e['prob']*100,1)} for e in events])
+            st.dataframe(frame,hide_index=True,use_container_width=True)
+        if any(e.get('quota_stimata') for e in events):
+            st.caption('Nel listone le quote combo mancanti sono teoriche (1/probabilità), non prezzi del bookmaker. Le tre proposte giornaliere usano soltanto quote presenti nel file.')
         st.caption('Probabilità stimate dalle quote con modello Poisson, non percentuali di successo verificate. Per le multiple il calcolo assume eventi indipendenti.')

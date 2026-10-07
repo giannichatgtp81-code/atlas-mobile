@@ -32,8 +32,16 @@ def grid():
             result.append((cells, probs))
     return result
 
-def candidates(rows):
-    result, seen = [], set()
+@lru_cache(maxsize=2048)
+def fitted_probabilities(target_items):
+    targets = dict(target_items)
+    cells, _ = min(grid(), key=lambda item:sum((item[1][m]-p)**2 for m,p in targets.items()))
+    simple = {m:sum(p for h,a,p in cells if holds(m,h,a)) for m in OUTCOMES + SIDES + ('Under 1.5',)}
+    combos = {f'{o} + {s}':sum(p for h,a,p in cells if holds(o,h,a) and holds(s,h,a)) for o in OUTCOMES for s in SIDES}
+    return simple, combos
+
+def analyse_palinsesto(rows):
+    result, daily, seen = [], [], set()
     for row in rows:
         identity = (str(row.get('Data','')), str(row.get('Ora','')), str(row.get('Partita','')).strip())
         if not identity[2] or identity in seen: continue
@@ -45,31 +53,61 @@ def candidates(rows):
                 total = sum(1/o for o in odds)
                 targets.update({m:1/o/total for m,o in zip(family,odds) if m in ('1','X','2','Goal','Over 1.5','Over 2.5','Over 3.5')})
         if not all(m in targets for m in ('1','X','2')) or not any(m.startswith('Over') or m=='Goal' for m in targets): continue
-        cells, _ = min(grid(), key=lambda item:sum((item[1][m]-p)**2 for m,p in targets.items()))
+        simple_probs, combo_probs = fitted_probabilities(tuple(sorted(targets.items())))
         combos = []
-        for outcome in OUTCOMES:
-            for side in SIDES:
-                market = f'{outcome} + {side}'
-                probability = sum(p for h,a,p in cells if holds(outcome,h,a) and holds(side,h,a))
-                odd = number(row.get(market))
-                if odd is not None and odd <= 1.20: continue
+        event_options = []
+        for market, probability in simple_probs.items():
+            odd = number(row.get(market))
+            if odd and odd > 1.20:
+                event_options.append({'partita':identity[2], 'data':identity[0], 'ora':identity[1], 'mercato':market,'prob':probability,'quota':odd,'quota_stimata':False,'event_id':identity})
+        for market, probability in combo_probs.items():
+                real_odd = number(row.get(market))
+                odd = real_odd if real_odd is not None else (1 / probability if probability > 0 else None)
+                if odd is None or odd <= 1.20: continue
                 if probability > 0:
-                    combos.append({'partita':identity[2], 'data':identity[0], 'ora':identity[1], 'mercato':market,'prob':probability,'quota':odd,'event_id':identity})
+                    pick = {'partita':identity[2], 'data':identity[0], 'ora':identity[1], 'mercato':market,'prob':probability,'quota':odd,'quota_stimata':real_odd is None,'event_id':identity}
+                    combos.append(pick)
+                    # Le tre proposte usano prezzi presenti nel file, anche per le combo.
+                    if real_odd is not None: event_options.append(pick)
         if combos:
-            quoted = [c for c in combos if c['quota'] is not None]
+            quoted = [c for c in combos if not c['quota_stimata']]
             result.append(max(quoted or combos, key=lambda c:c['prob']))
-    return sorted(result, key=lambda c:(-c['prob'],c['event_id']))[:30]
+        daily.extend(event_options)
+    return {'listone':sorted(result, key=lambda c:(-c['prob'],c['event_id']))[:30], 'daily':daily, 'analysed':len(seen)}
+
+def candidates(rows):
+    return analyse_palinsesto(rows)['listone']
 
 def best_ticket(events, target, max_events):
-    valid = [e for e in events if number(e.get('quota')) and e['quota'] > 1.20]
+    valid = [e for e in events if number(e.get('quota')) and e['quota'] > 1.20 and e['quota'] <= target*1.05/1.20]
+    groups = {}
+    for e in valid: groups.setdefault(e['event_id'],[]).append(e)
+    # Ricerca compatta per quota a centesimi: mantiene i due percorsi migliori
+    # per fascia e numero di eventi. I prodotti reali restano non arrotondati.
+    states = [{} for _ in range(max_events+1)]
+    states[0][100] = [{'legs':(), 'quota':1., 'prob':1.}]
+    upper = target*1.05
+    for options in groups.values():
+        for size in range(max_events,0,-1):
+            additions = []
+            for bucket in states[size-1].values():
+                for previous in bucket:
+                    for e in options:
+                        odd = previous['quota']*e['quota']
+                        if odd > upper: continue
+                        additions.append({'legs':previous['legs']+(e,), 'quota':odd,'prob':previous['prob']*e['prob']})
+            for ticket in additions:
+                key = round(ticket['quota']*100)
+                bucket = states[size].setdefault(key,[])
+                bucket.append(ticket)
+                bucket.sort(key=lambda t:(-t['prob'],abs(t['quota']-target)))
+                del bucket[2:]
     best = None
     for size in range(2,max_events+1):
-        for legs in combinations(valid,size):
-            if len({e['event_id'] for e in legs}) != size: continue
-            odd = prod(e['quota'] for e in legs)
-            if not target*.95 <= odd <= target*1.05: continue
-            probability = prod(e['prob'] for e in legs)
-            rank = (probability,-abs(odd-target),-size)
-            if best is None or rank > best['rank']:
-                best = {'legs':legs,'quota':odd,'prob':probability,'rank':rank}
+        for bucket in states[size].values():
+            for ticket in bucket:
+                if not target*.95 <= ticket['quota'] <= upper: continue
+                rank = (ticket['prob'],-abs(ticket['quota']-target),-size)
+                if best is None or rank > best['rank']:
+                    best = {**ticket,'rank':rank}
     return best
