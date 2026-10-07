@@ -81,7 +81,8 @@ def candidates(rows):
 def best_ticket(events, target, max_events, max_leg_odds=None, min_events=2):
     valid = [e for e in events if number(e.get('quota')) and e['quota'] > 1.20 and e['quota'] <= target*1.05/1.20 and (max_leg_odds is None or e['quota'] <= max_leg_odds)]
     groups = {}
-    for e in valid: groups.setdefault(e['event_id'],[]).append(e)
+    # JSON converte le tuple in liste: normalizza anche le analisi ripristinate.
+    for e in valid: groups.setdefault(tuple(e['event_id']),[]).append(e)
     # Ricerca compatta per quota a centesimi: mantiene i due percorsi migliori
     # per fascia e numero di eventi. I prodotti reali restano non arrotondati.
     states = [{} for _ in range(max_events+1)]
