@@ -1,6 +1,7 @@
 """Money management a sequenza singola, basato sulla matrice MM originale."""
 from math import isfinite
 import json
+from copy import deepcopy
 from money_management import matrix, stake
 
 def initialise(cash, odds, expected):
@@ -62,14 +63,25 @@ def import_sequence(content):
 def render():
     import streamlit as st
     import pandas as pd
+    from mm_cloud_storage import gate, commit, StorageError
     with st.expander('Money Management'):
-        saved=st.file_uploader('Riprendi una sequenza salvata',type=['json'],key='mm_single_restore')
-        if saved is not None and st.button('Ripristina sequenza'):
+        cloud=gate(st)
+        if cloud is False:return
+        def persist(candidate):
             try:
-                st.session_state['mm_single']=import_sequence(saved.getvalue())
-                st.session_state['mm_single_revision']=st.session_state.get('mm_single_revision',0)+1
-                st.success('Sequenza ripristinata con tutti gli esiti e la cassa aggiornata.')
-            except ValueError as error:st.error(str(error))
+                commit(st,cloud,candidate)
+                return True
+            except StorageError as error:
+                st.error(str(error))
+                return False
+        if cloud is None:
+            st.caption('Salvataggio automatico con codice personale non ancora attivato dal gestore.')
+            saved=st.file_uploader('Riprendi una sequenza salvata',type=['json'],key='mm_single_restore')
+            if saved is not None and st.button('Ripristina sequenza'):
+                try:
+                    persist(import_sequence(saved.getvalue()))
+                    st.success('Sequenza ripristinata con tutti gli esiti e la cassa aggiornata.')
+                except ValueError as error:st.error(str(error))
         st.subheader('Impostazioni iniziali')
         mode=st.radio('Quote iniziali',('Uguali','Diverse'),horizontal=True,key='mm_single_mode')
         with st.form('mm_single_init'):
@@ -84,8 +96,7 @@ def render():
         if start:
             try:
                 odds=[quota]*int(total) if mode=='Uguali' else parse_odds(text,int(total))
-                st.session_state['mm_single']=initialise(cash,odds,int(expected))
-                st.session_state['mm_single_revision']=st.session_state.get('mm_single_revision',0)+1
+                if persist(initialise(cash,odds,int(expected))):st.rerun()
             except (ValueError,OverflowError) as error:st.error(str(error))
         state=st.session_state.get('mm_single')
         if not state:return
@@ -101,21 +112,35 @@ def render():
                 q=st.number_input('Quota del prossimo evento',min_value=1.01,value=float(state['odds'][info['played']]),step=.01,key=f"mm_single_q_{info['played']}_{st.session_state.get('mm_single_revision',0)}")
                 new_expected=st.number_input('Attesi da raggiungere',min_value=1,max_value=len(state['odds']),value=state['expected'])
                 if st.form_submit_button('Calcola'):
-                    state['odds'][info['played']]=q;state['expected']=int(new_expected)
-                    st.rerun()
+                    candidate=deepcopy(state)
+                    candidate['odds'][info['played']]=q;candidate['expected']=int(new_expected)
+                    if persist(candidate):st.rerun()
             info=status(state)
             st.write(f"**Puntata calcolata: € {info['stake']:.2f}**")
             c1,c2=st.columns(2)
-            if c1.button('Vinta',key='mm_single_win',disabled=info['terminal']):record(state,True);st.rerun()
-            if c2.button('Persa',key='mm_single_loss',disabled=info['terminal']):record(state,False);st.rerun()
+            if c1.button('Vinta',key='mm_single_win',disabled=info['terminal']):
+                candidate=deepcopy(state);record(candidate,True)
+                if persist(candidate):st.rerun()
+            if c2.button('Persa',key='mm_single_loss',disabled=info['terminal']):
+                candidate=deepcopy(state);record(candidate,False)
+                if persist(candidate):st.rerun()
         c1,c2=st.columns(2)
         if c1.button('Correggi ultimo esito',disabled=not state['history']):
-            undo(state);st.session_state['mm_single_revision']=st.session_state.get('mm_single_revision',0)+1;st.rerun()
+            candidate=deepcopy(state);undo(candidate)
+            if persist(candidate):st.rerun()
         if c2.button('Reset sequenza'):
-            st.session_state['mm_single']=initialise(state['initial'],state['odds'],state['expected']);st.rerun()
-        st.download_button('Salva sequenza aggiornata',export_sequence(state),'atlas_sequenza.json','application/json',use_container_width=True)
+            st.session_state['mm_reset_confirm']=True
+        if st.session_state.get('mm_reset_confirm'):
+            st.warning('Azzerare gli esiti e ripartire dalla cassa iniziale?')
+            if st.button('Conferma azzeramento sequenza'):
+                if persist(initialise(state['initial'],state['odds'],state['expected'])):
+                    st.session_state.pop('mm_reset_confirm',None);st.rerun()
+            if st.button('Annulla azzeramento'):
+                st.session_state.pop('mm_reset_confirm',None);st.rerun()
+        if cloud is None:
+            st.download_button('Salva sequenza aggiornata',export_sequence(state),'atlas_sequenza.json','application/json',use_container_width=True)
         table=pd.DataFrame([{'Evento':i+1,'Quota':e['quota'],'Puntata €':round(e['stake'],2),'Esito':'Vinta' if e['won'] else 'Persa','Cassa €':round(e['cash_after'],2)} for i,e in enumerate(state['history'])])
         if not table.empty:
             st.dataframe(table,hide_index=True,use_container_width=True)
             st.download_button('Salva conteggi CSV',table.to_csv(index=False).encode('utf-8-sig'),'atlas_conteggi.csv','text/csv')
-        st.caption('Il file di salvataggio si aggiorna a ogni esito: scaricalo per riprendere la sequenza anche dopo aver chiuso la pagina. La resa dipende dagli esiti attesi; il metodo può impegnare tutta la cassa.')
+        st.caption(('Ogni modifica confermata è salvata online: riprendi con il tuo codice personale.' if cloud is not None else 'Scarica il file aggiornato per riprendere la sequenza.')+' La resa dipende dagli esiti attesi; il metodo può impegnare tutta la cassa.')
