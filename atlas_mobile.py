@@ -10,9 +10,28 @@ from analysis_storage import load as load_analysis, save as save_analysis, paylo
 
 st.set_page_config(page_title='Atlas Mobile',page_icon='⚽',layout='centered')
 st.markdown('''<style>
-.stApp {background:#F2F8FD;color:#42576A;}
+.stApp {background:#F2F8FD;color:#173B59;color-scheme:light;}
+.stApp [data-testid="stMarkdownContainer"],
+.stApp [data-testid="stWidgetLabel"],
+.stApp [data-testid="stCaptionContainer"],
+.stApp label {color:#173B59!important;}
 h1,h2,h3 {color:#173B59!important;}
-div.stButton>button,div.stFormSubmitButton>button {background:#369DDB;color:white;border:0;border-radius:12px;}
+div.stButton>button,div.stFormSubmitButton>button {background:#167AB5;color:white!important;border:0;border-radius:12px;}
+.stApp button [data-testid="stMarkdownContainer"] {color:inherit!important;}
+.stApp input,.stApp textarea {background:#FFFFFF!important;color:#173B59!important;-webkit-text-fill-color:#173B59!important;caret-color:#173B59;}
+.stApp input::placeholder,.stApp textarea::placeholder {color:#536D82!important;-webkit-text-fill-color:#536D82!important;opacity:1;}
+.stApp [data-baseweb="input"],.stApp [data-baseweb="base-input"],
+.stApp [data-baseweb="textarea"],.stApp [data-baseweb="select"]>div {background:#FFFFFF!important;color:#173B59!important;border-color:#A8CDE5!important;}
+.stApp [data-testid="stNumberInput"] button {background:#E2F1FB!important;color:#173B59!important;}
+.stApp [data-testid="stExpander"] details,
+.stApp [data-testid="stExpander"] summary {background:#FFFFFF!important;color:#173B59!important;border-color:#CDE5F5!important;}
+.stApp [data-testid="stFileUploaderDropzone"] {background:#FFFFFF!important;color:#173B59!important;border:1px solid #A8CDE5!important;}
+.stApp [data-testid="stFileUploaderDropzone"] button,
+.stApp [data-testid="stDownloadButton"] button {background:#E2F1FB!important;color:#173B59!important;border:1px solid #A8CDE5!important;}
+.stApp [data-testid="stRadio"] [role="radiogroup"] {color:#173B59!important;}
+.stApp [data-testid="stHeader"] {background:#F2F8FD!important;}
+.stApp [data-testid="stCode"],.stApp pre {background:#E2F1FB!important;color:#173B59!important;}
+.stApp button:focus-visible,.stApp input:focus-visible {outline:2px solid #167AB5!important;outline-offset:2px;}
 div[data-testid="stForm"] {background:white;border:1px solid #CDE5F5;border-radius:16px;}
 div[data-testid="stVerticalBlockBorderWrapper"]>div {border-color:#CDE5F5!important;}
 </style>''',unsafe_allow_html=True)

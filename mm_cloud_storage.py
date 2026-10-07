@@ -92,9 +92,14 @@ def gate(st):
         url = st.secrets.get('SUPABASE_URL', '')
         key = st.secrets.get('SUPABASE_SECRET_KEY', '')
     except Exception:
-        url = key = ''
+        st.error('Impostazioni riservate non leggibili. Il gestore deve verificare il formato TOML nei Secrets di Streamlit.')
+        return False
     if not url and not key:
-        return None
+        st.warning('Salvataggio online non configurato: mancano SUPABASE_URL e SUPABASE_SECRET_KEY nei Secrets di questa app. Non è necessario caricare un file JSON.')
+        return False
+    if not url or not key:
+        st.warning('Configurazione incompleta: manca '+('SUPABASE_URL' if not url else 'SUPABASE_SECRET_KEY')+' nei Secrets di Streamlit.')
+        return False
     try:
         store = Store(url, key)
     except StorageError as error:
