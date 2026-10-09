@@ -79,8 +79,10 @@ def analyse_palinsesto(rows):
             result.append(max(quoted or combos, key=lambda c:c['prob']))
         daily.extend(event_options)
         for option in event_options + combos:
+            option['storico_usato'] = bool(context)
             option['fonte_analisi'] = ('Quote + ' + context.get('provider', 'PitchAPI') + ' (sperimentale)') if context else 'Solo quote'
-    return {'listone':sorted(result, key=lambda c:(-c['prob'],c['event_id']))[:30], 'daily':daily, 'analysed':len(seen)}
+    # History-backed eligible combos first; PDF-only combos fill remaining slots.
+    return {'listone':sorted(result, key=lambda c:(not c['storico_usato'],-c['prob'],c['event_id']))[:30], 'daily':daily, 'analysed':len(seen)}
 
 def candidates(rows):
     return analyse_palinsesto(rows)['listone']
