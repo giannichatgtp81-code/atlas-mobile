@@ -6,8 +6,21 @@ import threading
 from datetime import datetime
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
-from football_charts_client import COUNTRIES, team_name
 from pitchapi_client import day, name, history_targets
+
+# Keep this adapter independent of older deployed Football Charts versions.
+COUNTRIES = dict(zip(
+    ('inghilterra','scozia','germania','italia','spagna','francia','olanda','belgio',
+     'portogallo','turchia','grecia','argentina','austria','brasile','cina','danimarca',
+     'finlandia','irlanda','giappone','messico','norvegia','polonia','romania','russia',
+     'svezia','svizzera','usa','stati uniti'),
+    ('England','Scotland','Germany','Italy','Spain','France','Netherlands','Belgium',
+     'Portugal','Turkey','Greece','Argentina','Austria','Brazil','China','Denmark',
+     'Finland','Ireland','Japan','Mexico','Norway','Poland','Romania','Russia',
+     'Sweden','Switzerland','USA','USA')))
+
+def team_name(value):
+    return ' '.join(t for t in name(value).split() if t not in {'cf','afc'})
 
 # Source division identifiers, not an assertion of current availability.
 CATALOG = {
