@@ -6,7 +6,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 from pdf_odds_importer import OddsPrinterPdfParser
 from mobile_combo_engine import analyse_palinsesto, best_ticket
-from football_charts_client import Client as FootballClient, enrich as enrich_football
+from football_data_client import Client as FootballClient, enrich as enrich_football
 from money_management_single import render as render_money_management
 from analysis_storage import load as load_analysis, save as save_analysis, payload, active
 
@@ -117,9 +117,13 @@ if analysis is not None:
     if report:
         provider = report.get('provider', 'PitchAPI (analisi precedente: rigenerare)')
         st.caption(f"{provider}: storico usato per {report['enriched']}/{report['total']} partite. Le altre restano basate sulle quote.")
-        st.caption(f"Partite ricevute dalla fonte: {report.get('fixtures_received', '—')} · abbinate al PDF: {report.get('matched', 0)} · storico insufficiente: {report.get('insufficient_history', '—')}")
+        st.caption(f"Risultati storici ricevuti: {report.get('fixtures_received', '—')} · partite con squadre riconosciute: {report.get('matched', 0)} · storico insufficiente: {report.get('insufficient_history', '—')}")
+        if report.get('unsupported'):
+            st.caption(f"Partite senza competizione supportata o dati identificativi: {report['unsupported']}.")
+        if report.get('latest_dates'):
+            st.caption('Ultimi risultati disponibili per archivio: ' + ' · '.join(f'{code}: {date}' for code, date in sorted(report['latest_dates'].items())))
         for message in report.get('errors', []): st.warning(message)
-        st.caption('Data by football-charts.com · modello sperimentale, miglioramento non ancora validato.')
+        st.caption(f'Dati: {provider} · modello sperimentale, miglioramento non ancora validato.')
     if stored:st.caption(f"Palinsesto del {stored['reference_date']} · valido fino alla mezzanotte della giornata indicata")
     events = analysis['listone']
     if not events and not analysis['daily']:
