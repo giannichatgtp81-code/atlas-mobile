@@ -5,7 +5,7 @@ import pandas as pd
 import streamlit as st
 from pdf_odds_importer import OddsPrinterPdfParser
 from mobile_combo_engine import analyse_palinsesto, best_ticket
-from pitchapi_client import Client as PitchClient, enrich as enrich_pitchapi
+from football_charts_client import Client as FootballClient, enrich as enrich_football
 from money_management_single import render as render_money_management
 from analysis_storage import load as load_analysis, save as save_analysis, payload, active
 
@@ -69,8 +69,8 @@ def public_analysis():
     return load_analysis()
 
 @st.cache_resource
-def pitch_client(key):
-    return PitchClient(key)
+def football_client():
+    return FootballClient()
 
 if 'palinsesto_analysis' not in st.session_state:
     saved_analysis=public_analysis()
@@ -87,9 +87,7 @@ if submitted:
         try:
             with st.spinner('Analisi del palinsesto…'):
                 rows = read_rows(upload)
-                try: pitch_key = st.secrets.get('PITCHAPI_API_KEY', '')
-                except Exception: pitch_key = ''
-                rows, pitch_report = enrich_pitchapi(rows, pitch_client(pitch_key) if pitch_key else None)
+                rows, pitch_report = enrich_football(rows, football_client())
                 st.session_state['palinsesto_analysis'] = analyse_palinsesto(rows)
                 st.session_state['palinsesto_analysis']['pitchapi'] = pitch_report
                 daily_payload=payload(st.session_state['palinsesto_analysis'])
@@ -116,10 +114,11 @@ analysis = st.session_state.get('palinsesto_analysis')
 if analysis is not None:
     report = analysis.get('pitchapi')
     if report:
-        st.caption(f"PitchAPI sperimentale: storico usato per {report['enriched']}/{report['total']} partite. Le altre restano basate sulle quote.")
-        st.caption(f"Partite ricevute da PitchAPI: {report.get('fixtures_received', '—')} · abbinate al PDF: {report.get('matched', 0)} · storico insufficiente: {report.get('insufficient_history', '—')}")
+        provider = report.get('provider', 'PitchAPI (analisi precedente: rigenerare)')
+        st.caption(f"{provider}: storico usato per {report['enriched']}/{report['total']} partite. Le altre restano basate sulle quote.")
+        st.caption(f"Partite ricevute dalla fonte: {report.get('fixtures_received', '—')} · abbinate al PDF: {report.get('matched', 0)} · storico insufficiente: {report.get('insufficient_history', '—')}")
         for message in report.get('errors', []): st.warning(message)
-        st.caption('Dati sportivi: PitchAPI · modello sperimentale, miglioramento non ancora validato.')
+        st.caption('Data by football-charts.com · modello sperimentale, miglioramento non ancora validato.')
     if stored:st.caption(f"Palinsesto del {stored['reference_date']} · valido fino alla mezzanotte della giornata indicata")
     events = analysis['listone']
     if not events and not analysis['daily']:
@@ -137,6 +136,6 @@ if analysis is not None:
             st.dataframe(frame,hide_index=True,use_container_width=True)
         if any(e.get('quota_stimata') for e in events):
             st.caption('Nel listone le quote combo mancanti sono teoriche (1/probabilità), non prezzi del bookmaker. Le tre proposte giornaliere usano soltanto quote presenti nel file.')
-        st.caption('Probabilità stimate con modello Poisson dalle quote e, dove disponibile, dallo storico PitchAPI. Non sono percentuali di successo verificate. Per le multiple il calcolo assume eventi indipendenti.')
+        st.caption('Probabilità stimate con modello Poisson dalle quote e, dove disponibile, dallo storico sportivo. Non sono percentuali di successo verificate. Per le multiple il calcolo assume eventi indipendenti.')
 
 render_money_management()

@@ -79,7 +79,7 @@ def analyse_palinsesto(rows):
             result.append(max(quoted or combos, key=lambda c:c['prob']))
         daily.extend(event_options)
         for option in event_options + combos:
-            option['fonte_analisi'] = 'Quote + PitchAPI (sperimentale)' if context else 'Solo quote'
+            option['fonte_analisi'] = ('Quote + ' + context.get('provider', 'PitchAPI') + ' (sperimentale)') if context else 'Solo quote'
     return {'listone':sorted(result, key=lambda c:(-c['prob'],c['event_id']))[:30], 'daily':daily, 'analysed':len(seen)}
 
 def candidates(rows):
