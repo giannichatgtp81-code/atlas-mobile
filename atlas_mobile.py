@@ -3,6 +3,7 @@ from pathlib import Path
 import tempfile
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 from pdf_odds_importer import OddsPrinterPdfParser
 from mobile_combo_engine import analyse_palinsesto, best_ticket
 from football_charts_client import Client as FootballClient, enrich as enrich_football
@@ -47,7 +48,7 @@ def read_rows(upload):
         path = Path(file.name)
     try: events = OddsPrinterPdfParser().parse(path)
     finally: path.unlink(missing_ok=True)
-    return [{'Partita':e.match_name,'Data':e.date,'Ora':e.time,**e.odds} for e in events]
+    return [{'Partita':e.match_name,'Data':e.date,'Ora':e.time,'Competizione':e.competition,**e.odds} for e in events]
 
 def show(title,ticket):
     st.subheader(title)
@@ -137,5 +138,13 @@ if analysis is not None:
         if any(e.get('quota_stimata') for e in events):
             st.caption('Nel listone le quote combo mancanti sono teoriche (1/probabilità), non prezzi del bookmaker. Le tre proposte giornaliere usano soltanto quote presenti nel file.')
         st.caption('Probabilità stimate con modello Poisson dalle quote e, dove disponibile, dallo storico sportivo. Non sono percentuali di successo verificate. Per le multiple il calcolo assume eventi indipendenti.')
+
+with st.expander('Livescore · SoccersAPI'):
+    st.caption('Risultati e statistiche forniti da SoccersAPI. Questa sezione non alimenta automaticamente i pronostici di Atlas.')
+    if st.checkbox('Mostra il livescore esterno', key='show_soccersapi_livescore'):
+        components.iframe(
+            'https://embed.soccersapi.com/widgets/ls-soccersapi/free.html?uid=6ac91d94e239292ca271033d&widget-id=livescore&locale=es',
+            height=1200, scrolling=True,
+        )
 
 render_money_management()
