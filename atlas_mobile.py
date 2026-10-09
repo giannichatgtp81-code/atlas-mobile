@@ -117,6 +117,7 @@ if analysis is not None:
     report = analysis.get('pitchapi')
     if report:
         st.caption(f"PitchAPI sperimentale: storico usato per {report['enriched']}/{report['total']} partite. Le altre restano basate sulle quote.")
+        st.caption(f"Partite ricevute da PitchAPI: {report.get('fixtures_received', '—')} · abbinate al PDF: {report.get('matched', 0)} · storico insufficiente: {report.get('insufficient_history', '—')}")
         for message in report.get('errors', []): st.warning(message)
         st.caption('Dati sportivi: PitchAPI · modello sperimentale, miglioramento non ancora validato.')
     if stored:st.caption(f"Palinsesto del {stored['reference_date']} · valido fino alla mezzanotte della giornata indicata")
