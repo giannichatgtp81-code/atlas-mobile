@@ -18,6 +18,8 @@ class Client:
         self.cache = {}
         self.calls = []
         self.lock = threading.RLock()
+        self.rate_lock = threading.Lock()
+        self.last_request = 0.0
 
     def get(self, path):
         with self.lock:
@@ -30,6 +32,10 @@ class Client:
                 raise SourceError('Budget giornaliero della fonte raggiunto.')
             self.calls.append(now)
         try:
+            # Space requests across all workers; avoid a burst of 93 leagues.
+            with self.rate_lock:
+                time.sleep(max(0, 1.1 - (time.monotonic() - self.last_request)))
+                self.last_request = time.monotonic()
             request = Request('https://footballcharts-backend.onrender.com/api/v1' + path,
                               headers={'Accept': 'application/json', 'User-Agent': 'AtlasMobile/1.0'})
             with urlopen(request, timeout=10) as response:
@@ -68,6 +74,13 @@ def enrich(rows, client):
     def warning(text):
         if text not in report['errors']:
             report['errors'].append(text)
+    def diagnostic(error):
+        message = str(error)
+        if re.fullmatch(r'Football Charts: HTTP [1-5][0-9]{2}\.', message):
+            return message
+        if message in {'Budget giornaliero della fonte raggiunto.', 'Football Charts non raggiungibile.', 'Risposta della fonte non valida.'}:
+            return message
+        return 'Formato dei dati inatteso.'
     try:
         leagues = client.get('/leagues/')['leagues']
         leagues = [l for l in leagues if re.fullmatch(r'[a-z0-9]+', l.get('league', ''))]
@@ -93,8 +106,8 @@ def enrich(rows, client):
                     report['fixtures_received'] += 1
                     if key in wanted:
                         index.setdefault(key, []).append((league, match))
-            except (SourceError, TypeError, AttributeError):
-                warning('Alcuni campionati non disponibili: copertura parziale.')
+            except (SourceError, TypeError, AttributeError) as error:
+                warning('Copertura parziale: ' + diagnostic(error))
     histories = {}
     for row in rows:
         parts = str(row.get('Partita', '')).split(' - ')
@@ -115,8 +128,13 @@ def enrich(rows, client):
                 for season in metadata[league].get('seasons', [])[:2]:
                     if not re.fullmatch(r'\d{4}(?:-\d{4})?', season):
                         continue
-                    raw = client.get('/leagues/' + league + '/results/?season=' + season).get('matches', [])
-                    history.extend(m for r in raw if (m := result_match(r, league)))
+                    try:
+                        raw = client.get('/leagues/' + league + '/results/?season=' + season).get('matches', [])
+                        history.extend(m for r in raw if (m := result_match(r, league)))
+                    except (SourceError, TypeError, KeyError, AttributeError) as error:
+                        warning('Storico ' + league + ' (' + season + '): ' + diagnostic(error))
+                        # Keep every season already received, even if another fails.
+                        continue
                 histories[league] = history
             context = history_targets(histories[league], event)
             if context:
