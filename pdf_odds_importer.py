@@ -461,6 +461,7 @@ class OddsPrinterPdfParser:
             for center in BASE_COLUMN_CENTERS
         )
         column_tolerance = self.column_tolerance * scale
+        column_layout = self._header_columns(words, header_bottom, scale)
 
         date_on_page = inherited_date
 
@@ -505,12 +506,53 @@ class OddsPrinterPdfParser:
                 column_centers=column_centers,
                 column_tolerance=column_tolerance,
                 scale=scale,
+                column_layout=column_layout,
             )
 
             if event is not None:
                 events.append(event)
 
         return events, date_on_page
+
+    @staticmethod
+    def _header_columns(words, header_bottom, scale):
+        """Read cell boundaries from headers, preserving extra market positions."""
+        header = [w for w in words if float(w.get('top', 0)) < header_bottom]
+        labels = {'1', 'X', '2', '1X', '12', 'X2'}
+        anchor = next((w for w in header if _clean_text(w.get('text')) == '1X'), None)
+        if anchor is None:
+            return None
+        row = sorted((w for w in header
+                      if abs(float(w['top']) - float(anchor['top'])) <= 2 * scale
+                      and _clean_text(w.get('text')).upper() in labels | {'UNDER', 'OVER', 'G', 'NG'}),
+                     key=lambda w: float(w['x0']))
+        if not labels.issubset({_clean_text(w.get('text')).upper() for w in row}):
+            return None
+        centres = [(float(w['x0']) + float(w['x1'])) / 2 for w in row]
+        groups = []
+        for word in header:
+            if _clean_text(word.get('text')).upper() != 'U/O':
+                continue
+            following = sorted((w for w in header
+                                if 0 <= float(w['x0']) - float(word['x1']) < 25 * scale
+                                and abs(float(w['top']) - float(word['top'])) <= 2 * scale),
+                               key=lambda w: float(w['x0']))
+            line = next((_clean_text(w.get('text')).replace(',', '.') for w in following
+                         if re.fullmatch(r'\d+[.,]\d+', _clean_text(w.get('text')))), None)
+            if line:
+                groups.append(((float(word['x0']) + float(word['x1'])) / 2, line))
+        layout = []
+        for i, (word, centre) in enumerate(zip(row, centres)):
+            left = (centres[i - 1] + centre) / 2 if i else centre - (centres[1] - centre) / 2
+            right = (centre + centres[i + 1]) / 2 if i + 1 < len(row) else centre + (centre - centres[i - 1]) / 2
+            label = _clean_text(word.get('text')).upper()
+            market = label if label in labels else {'G': 'Goal', 'NG': 'No Goal'}.get(label)
+            if label in ('UNDER', 'OVER') and groups:
+                group, line = min(groups, key=lambda item: abs(item[0] - centre))
+                if abs(group - centre) <= (right - left) * 1.1:
+                    market = ('Under ' if label == 'UNDER' else 'Over ') + line
+            layout.append((market, left, right))
+        return layout
 
     def _find_row_intervals(
         self,
@@ -617,6 +659,7 @@ class OddsPrinterPdfParser:
         column_centers: Sequence[float],
         column_tolerance: float,
         scale: float,
+        column_layout=None,
     ) -> PdfOddsEvent | None:
         source_code = ""
         time_value = _clean_text(anchor.get("time"))
@@ -689,6 +732,12 @@ class OddsPrinterPdfParser:
             odd = _safe_float(word.get("text"))
 
             if odd is None:
+                continue
+
+            if column_layout is not None:
+                market = next((market for market, left, right in column_layout if left <= center < right), None)
+                if market in MARKET_COLUMNS:
+                    odds[PDF_TO_ATLAS_MARKET.get(market, market)] = odd
                 continue
 
             nearest_index = min(
