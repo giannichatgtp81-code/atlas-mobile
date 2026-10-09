@@ -53,6 +53,11 @@ def analyse_palinsesto(rows):
                 total = sum(1/o for o in odds)
                 targets.update({m:1/o/total for m,o in zip(family,odds) if m in ('1','X','2','Goal','Over 1.5','Over 2.5','Over 3.5')})
         if not all(m in targets for m in ('1','X','2')) or not any(m.startswith('Over') or m=='Goal' for m in targets): continue
+        context = row.get('_pitchapi')
+        if context:
+            # Experimental conservative blend; quote prices are never modified.
+            historical = context['targets']
+            targets = {m: 0.75*p + 0.25*historical[m] for m,p in targets.items()}
         simple_probs, combo_probs = fitted_probabilities(tuple(sorted(targets.items())))
         combos = []
         event_options = []
@@ -73,6 +78,8 @@ def analyse_palinsesto(rows):
             quoted = [c for c in combos if not c['quota_stimata']]
             result.append(max(quoted or combos, key=lambda c:c['prob']))
         daily.extend(event_options)
+        for option in event_options + combos:
+            option['fonte_analisi'] = 'Quote + PitchAPI (sperimentale)' if context else 'Solo quote'
     return {'listone':sorted(result, key=lambda c:(-c['prob'],c['event_id']))[:30], 'daily':daily, 'analysed':len(seen)}
 
 def candidates(rows):

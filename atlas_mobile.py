@@ -5,6 +5,7 @@ import pandas as pd
 import streamlit as st
 from pdf_odds_importer import OddsPrinterPdfParser
 from mobile_combo_engine import analyse_palinsesto, best_ticket
+from pitchapi_client import Client as PitchClient, enrich as enrich_pitchapi
 from money_management_single import render as render_money_management
 from analysis_storage import load as load_analysis, save as save_analysis, payload, active
 
@@ -57,6 +58,7 @@ def show(title,ticket):
         for leg in ticket['legs']:
             label = 'quota stimata' if leg.get('quota_stimata') else 'quota reale'
             st.write(f"**{leg['partita']}** — {leg['mercato']} · {label} {leg['quota']:.2f}")
+            st.caption(leg.get('fonte_analisi', 'Solo quote'))
         label = 'Quota totale stimata' if any(e.get('quota_stimata') for e in ticket['legs']) else 'Quota totale'
         st.write(f"**{label} {ticket['quota']:.2f}** · probabilità stimata {ticket['prob']*100:.1f}%")
 
@@ -65,6 +67,10 @@ st.caption('Singola del giorno · quota 2 · quota 3 · listone 30 combo')
 @st.cache_data(ttl=60)
 def public_analysis():
     return load_analysis()
+
+@st.cache_resource
+def pitch_client(key):
+    return PitchClient(key)
 
 if 'palinsesto_analysis' not in st.session_state:
     saved_analysis=public_analysis()
@@ -80,7 +86,12 @@ if submitted:
     else:
         try:
             with st.spinner('Analisi del palinsesto…'):
-                st.session_state['palinsesto_analysis'] = analyse_palinsesto(read_rows(upload))
+                rows = read_rows(upload)
+                try: pitch_key = st.secrets.get('PITCHAPI_API_KEY', '')
+                except Exception: pitch_key = ''
+                rows, pitch_report = enrich_pitchapi(rows, pitch_client(pitch_key) if pitch_key else None)
+                st.session_state['palinsesto_analysis'] = analyse_palinsesto(rows)
+                st.session_state['palinsesto_analysis']['pitchapi'] = pitch_report
                 daily_payload=payload(st.session_state['palinsesto_analysis'])
                 st.session_state['analysis_saved']=daily_payload
                 try: token=st.secrets.get('ATLAS_STORAGE_TOKEN','')
@@ -103,6 +114,11 @@ if stored and not active(stored):
     st.session_state.pop('analysis_saved',None)
 analysis = st.session_state.get('palinsesto_analysis')
 if analysis is not None:
+    report = analysis.get('pitchapi')
+    if report:
+        st.caption(f"PitchAPI sperimentale: storico usato per {report['enriched']}/{report['total']} partite. Le altre restano basate sulle quote.")
+        for message in report.get('errors', []): st.warning(message)
+        st.caption('Dati sportivi: PitchAPI · modello sperimentale, miglioramento non ancora validato.')
     if stored:st.caption(f"Palinsesto del {stored['reference_date']} · valido fino alla mezzanotte della giornata indicata")
     events = analysis['listone']
     if not events and not analysis['daily']:
@@ -120,6 +136,6 @@ if analysis is not None:
             st.dataframe(frame,hide_index=True,use_container_width=True)
         if any(e.get('quota_stimata') for e in events):
             st.caption('Nel listone le quote combo mancanti sono teoriche (1/probabilità), non prezzi del bookmaker. Le tre proposte giornaliere usano soltanto quote presenti nel file.')
-        st.caption('Probabilità stimate dalle quote con modello Poisson, non percentuali di successo verificate. Per le multiple il calcolo assume eventi indipendenti.')
+        st.caption('Probabilità stimate con modello Poisson dalle quote e, dove disponibile, dallo storico PitchAPI. Non sono percentuali di successo verificate. Per le multiple il calcolo assume eventi indipendenti.')
 
 render_money_management()
