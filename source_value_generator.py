@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from football_data_client import CATALOG, record
 from pitchapi_client import day, history_targets
-from manual_stats import context_for, load as load_manual_stats
+from manual_stats import context_for, load as load_manual_stats, render_comparison
 
 MARKETS = {'1':'B365H','X':'B365D','2':'B365A','Over 2.5':'B365>2.5','Under 2.5':'B365<2.5'}
 DIVISIONS = {code:country+' - '+label for country,entries in CATALOG.items() for code,label in entries}
@@ -165,12 +165,11 @@ def render(client):
         contexts = report.get('manual_context', [])
         st.caption(f"Statistiche HTML abbinate a {len(contexts)} partite della giornata. Non alterano automaticamente le probabilità 1X2 o gol.")
         if contexts:
-            with st.expander('BTTS e corner abbinati · mercati non ancora quotati'):
+            with st.expander('Confronto sportivo BTTS e corner · dati descrittivi'):
                 for item in contexts:
                     st.write(item['partita'])
-                    for entry in item['statistiche']:
-                        st.write(entry['lato'] + ' · ' + entry['tipo'], entry['dati'])
-                st.info('Dati storici di contesto, non nuove proposte: mancano quote reali e un modello verificato per BTTS/corner.')
+                    render_comparison(item['statistiche'])
+                st.info('Confronto descrittivo indipendente: non seleziona giocate e non modifica le multiple.')
         if not ticket['legs']:
             st.info('Nessuna proposta valida con i dati disponibili. Non uso il PDF come ripiego.'); return
         if len(ticket['legs'])<count: st.warning(f"Solo {len(ticket['legs'])} eventi validi su {count} richiesti: non completo a forza.")

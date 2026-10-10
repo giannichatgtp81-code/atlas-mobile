@@ -102,6 +102,44 @@ def context_for(home, away, reference_date, snapshots, now=None):
     return result
 
 
+def comparison_rows(context):
+    """Descriptive statistics only: no match prediction or betting ranking."""
+    rows = []
+    for entry in context:
+        data = entry['dati']
+        row = {'Squadra': data['squadra'], 'Lato partita': entry['lato'],
+               'Pagina salvata': entry['pagina_salvata_il']}
+        if entry['tipo'] == 'btts':
+            hits, games = data['btts_partite'], data['partite']
+            if not 0 <= hits <= games or games <= 0: continue
+            p = hits / games
+            z = 1.96
+            denominator = 1 + z*z/games
+            center = (p + z*z/(2*games))/denominator
+            width = z*((p*(1-p)/games + z*z/(4*games*games))**.5)/denominator
+            row.update(Statistica='Entrambe hanno segnato', Frequenza=f'{hits}/{games} ({p*100:.1f}%)',
+                       Campione=games, **{'Intervallo descrittivo 95%':f'{max(0,center-width)*100:.1f}–{min(1,center+width)*100:.1f}%'})
+        elif entry['tipo'] == 'corners':
+            row.update(Statistica='Media corner totali nelle partite della squadra',
+                       Frequenza=str(data['media_corner_totali']), Campione='Non disponibile',
+                       **{'Intervallo descrittivo 95%':'Non calcolabile'})
+        else: continue
+        rows.append(row)
+    return rows
+
+
+def render_comparison(context):
+    import streamlit as st
+    rows = comparison_rows(context)
+    if rows: st.dataframe(rows, hide_index=True)
+    sides = {e['lato'] for e in context if e['tipo'] == 'btts'}
+    if sides != {'casa', 'trasferta'}:
+        st.caption('BTTS: manca il dato di almeno una delle due squadre. Nessun valore sostitutivo viene inventato.')
+    st.caption('Il lato casa/trasferta identifica la partita da confrontare: le frequenze importate non sono statistiche separate casa/trasferta. Gli intervalli BTTS descrivono l’incertezza del campione con ipotesi binomiale, non la probabilità della prossima partita. I campioni delle squadre possono sovrapporsi e non vengono sommati.')
+    if any(e['tipo'] == 'corners' for e in context):
+        st.caption('La media corner non indica la frequenza di superamento di una soglia. Mancano campione, dispersione e separazione a favore/contro.')
+
+
 def load(kind):
     try:
         result = api('contents/manual-' + kind + '.json?ref=' + BRANCH)
