@@ -129,10 +129,10 @@ class Client:
     def __init__(self):
         self.cache = {}
         self.lock = threading.RLock()
-    def get(self, path):
+    def get(self, path, ttl=86400):
         with self.lock:
             cached = self.cache.get(path)
-            if cached and time.monotonic()-cached[0] < 86400: return cached[1]
+            if cached and time.monotonic()-cached[0] < ttl: return cached[1]
             request = Request('https://football-data.co.uk/'+path, headers={'User-Agent':'AtlasMobile/1.0','Accept':'text/csv'})
             with urlopen(request, timeout=10) as response:
                 text = response.read(8_000_001)

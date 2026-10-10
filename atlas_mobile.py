@@ -7,6 +7,7 @@ import streamlit.components.v1 as components
 from pdf_odds_importer import OddsPrinterPdfParser
 from mobile_combo_engine import analyse_palinsesto, best_ticket
 from football_data_client import Client as FootballClient, enrich as enrich_football
+from source_value_generator import render as render_source_generator
 from money_management_single import render as render_money_management
 from analysis_storage import load as load_analysis, save as save_analysis, payload, active
 
@@ -72,6 +73,8 @@ def public_analysis():
 @st.cache_resource
 def football_client():
     return FootballClient()
+
+render_source_generator(football_client())
 
 if 'palinsesto_analysis' not in st.session_state:
     saved_analysis=public_analysis()
