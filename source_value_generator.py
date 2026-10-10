@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from football_data_client import CATALOG, record
 from pitchapi_client import day, history_targets
+from manual_stats import context_for, load as load_manual_stats
 
 MARKETS = {'1':'B365H','X':'B365D','2':'B365A','Over 2.5':'B365>2.5','Under 2.5':'B365<2.5'}
 DIVISIONS = {code:country+' - '+label for country,entries in CATALOG.items() for code,label in entries}
@@ -27,9 +28,9 @@ def select_ticket(picks,count,max_per_league=None):
     unique = {}
     for p in picks:
         identity = p['event_id']
-        if identity not in unique or (p['prob'],p['edge']) > (unique[identity]['prob'],unique[identity]['edge']): unique[identity]=p
+        if identity not in unique or (p['edge'],p['prob']) > (unique[identity]['edge'],unique[identity]['prob']): unique[identity]=p
     legs, leagues = [], {}
-    for p in sorted(unique.values(),key=lambda p:(-p['prob'],-p['edge'],p['event_id'])):
+    for p in sorted(unique.values(),key=lambda p:(-p['edge'],-p['prob'],p['event_id'])):
         league = p['event_id'][0]
         if max_per_league is not None and leagues.get(league,0) >= max_per_league: continue
         legs.append(p); leagues[league] = leagues.get(league,0)+1
@@ -37,7 +38,7 @@ def select_ticket(picks,count,max_per_league=None):
     return {'legs':legs,'requested':count,'quota':math.prod(p['quota'] for p in legs) if legs else None,
             'prob':math.prod(p['prob'] for p in legs) if legs else None}
 
-def generate(client,reference_date,now=None,min_edge=.05,source_timezone='Europe/London',allowed_divisions=None,min_probability=0.0,max_history_age=30):
+def generate(client,reference_date,now=None,min_edge=.05,source_timezone='Europe/London',allowed_divisions=None,min_probability=0.0,max_history_age=30,manual_snapshots=None):
     now = now or datetime.now(timezone.utc)
     if now.tzinfo is None or not 0 <= min_edge <= 1: raise ValueError('Parametri non validi.')
     if not 0 <= min_probability <= 1 or not 1 <= max_history_age <= 60: raise ValueError('Filtri non validi.')
@@ -48,6 +49,7 @@ def generate(client,reference_date,now=None,min_edge=.05,source_timezone='Europe
               'errors':[],'source':'Football-Data.co.uk','bookmaker':'Bet365','quote_checked_at':now.isoformat(),
               'min_edge':min_edge,'source_timezone':source_timezone,'reference_date':ref}
     report.update(min_probability=min_probability,max_history_age=max_history_age,stale_history=0,low_probability=0,allowed_divisions=sorted(allowed))
+    report['manual_context'] = []
     picks,histories,seen = [],{},set()
     if not allowed: return {'picks':picks,'report':report}
     try: fixtures = client.get('fixtures.csv',ttl=3600)
@@ -62,6 +64,10 @@ def generate(client,reference_date,now=None,min_edge=.05,source_timezone='Europe
         identity=(code,ref,str(fixture.get('HomeTeam')),str(fixture.get('AwayTeam')))
         if identity in seen: continue
         seen.add(identity); report['scheduled']+=1
+        manual_context = context_for(identity[2], identity[3], ref, manual_snapshots, now)
+        if manual_context:
+            report['manual_context'].append({'partita':identity[2]+' - '+identity[3], 'statistiche':manual_context,
+                'stato':'Solo contesto: mancano quote reali BTTS/corner e un modello validato per questi mercati.'})
         # Extract identities only. This fixture never enters the history sample.
         parsed=record(dict(fixture,FTHG='0',FTAG='0'),code)
         if not parsed: continue
@@ -98,7 +104,8 @@ def generate(client,reference_date,now=None,min_edge=.05,source_timezone='Europe
                 'competition':DIVISIONS[code],'mercato':market,'quota':odd,'prob':probability,
                 'edge':edge,'fair_odds':1/probability,'kickoff':when.isoformat(),
                 'home_matches':context['home_matches'],'away_matches':context['away_matches']})
-        if options: picks.append(max(options,key=lambda p:(p['prob'],p['edge'])))
+            options[-1]['statistiche_aggiuntive'] = manual_context
+        if options: picks.append(max(options,key=lambda p:(p['edge'],p['prob'])))
         elif quoted: report['no_value']+=1
         else: report['missing_quotes']+=1
     return {'picks':picks,'report':report}
@@ -125,6 +132,7 @@ def render(client):
     import streamlit as st
     today=datetime.now(ZoneInfo('Europe/Budapest')).date()
     with st.expander('Generatore autonomo · senza PDF'):
+        st.caption('Selezione per valore stimato più alto: probabilità × quota − 1. Non significa maggiore probabilità di vincita.')
         st.caption('Probabilità solo dallo storico. Quote Bet365 dalla fonte Football-Data.co.uk, non in tempo reale. Mercati: 1X2 e Under/Over 2,5. Copertura limitata alle partite con quote disponibili.')
         reference=st.date_input('Giornata da studiare',value=today,min_value=today,key='value_date')
         count=st.slider('Eventi della giocata',1,30,1,key='value_count')
@@ -135,11 +143,14 @@ def render(client):
             edge=st.number_input('Valore stimato minimo (%)',0.0,100.0,5.0,1.0,key='value_edge')
             tz=st.selectbox('Fuso orari della fonte',('Europe/London','Europe/Budapest','UTC'),key='value_timezone')
             st.caption('Il filtro delle partite iniziate usa questo fuso. Controlla orari e quote sul bookmaker.')
-        signature=(reference.isoformat(),edge,tz,tuple(sorted(leagues)),probability)
+        cached_manual = st.cache_data(ttl=60)(load_manual_stats)
+        snapshots = [data for kind in ('btts', 'corners') if (data := st.session_state.get('manual_' + kind) or cached_manual(kind))]
+        signature=(reference.isoformat(),edge,tz,tuple(sorted(leagues)),probability,
+                   tuple((d.get('tipo'),d.get('caricato_il'),d.get('pagina_salvata_il')) for d in snapshots))
         if st.button('Studia le partite e genera',key='value_generate'):
             st.session_state.pop('value_result',None)
             try:
-                with st.spinner('Studio dello storico e confronto delle quote…'): result=generate(client,reference,min_edge=edge/100,source_timezone=tz,allowed_divisions=leagues,min_probability=probability/100,max_history_age=30)
+                with st.spinner('Studio dello storico e confronto delle quote…'): result=generate(client,reference,min_edge=edge/100,source_timezone=tz,allowed_divisions=leagues,min_probability=probability/100,max_history_age=30,manual_snapshots=snapshots)
                 st.session_state['value_result']=(signature,result)
             except Exception: st.error('Generazione non riuscita. Nessun risultato precedente viene mostrato come nuovo.')
         saved=st.session_state.get('value_result')
@@ -151,6 +162,15 @@ def render(client):
         ticket=select_ticket(eligible,count,max_per_league=cap)
         st.caption(f"{report['analysed']} partite studiate · {len(eligible)} proposte di valore. Lettura: {report['quote_checked_at']}.")
         for message in report['errors']: st.warning(message)
+        contexts = report.get('manual_context', [])
+        st.caption(f"Statistiche HTML abbinate a {len(contexts)} partite della giornata. Non alterano automaticamente le probabilità 1X2 o gol.")
+        if contexts:
+            with st.expander('BTTS e corner abbinati · mercati non ancora quotati'):
+                for item in contexts:
+                    st.write(item['partita'])
+                    for entry in item['statistiche']:
+                        st.write(entry['lato'] + ' · ' + entry['tipo'], entry['dati'])
+                st.info('Dati storici di contesto, non nuove proposte: mancano quote reali e un modello verificato per BTTS/corner.')
         if not ticket['legs']:
             st.info('Nessuna proposta valida con i dati disponibili. Non uso il PDF come ripiego.'); return
         if len(ticket['legs'])<count: st.warning(f"Solo {len(ticket['legs'])} eventi validi su {count} richiesti: non completo a forza.")
